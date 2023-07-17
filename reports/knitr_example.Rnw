@@ -1,0 +1,132 @@
+\documentclass[10pt,a4paper,twoside]{article}
+
+%%% Load some LaTeX packages:
+\usepackage[utf8]{inputenc}
+\usepackage[nottoc,numbib]{tocbibind}      % for bibliography in the table of contents
+\usepackage{hyperref}                      % link to website: \url{}.
+\usepackage[hang,footnotesize,bf]{caption} % customized caption
+\usepackage{amsmath}                       % for mathematical features 
+\usepackage[left=2.5cm,top=3cm,bottom=3cm,right=2.5cm]{geometry}   % text margins
+\usepackage{booktabs}                      % for booktabs in print(xtable)).
+\usepackage{authblk}                       % for footnote style author/affiliation
+
+
+%%% Some LaTeX "macros":
+\newcommand{\R}{\textsf{R}}
+\newcommand{\Rpackage}[1]{\textsf{#1}}
+\newcommand{\Robject}[1]{\texttt{#1}}
+
+
+<<libraries, include=FALSE>>=
+### libraries related to knit:
+library(knitr)
+library(highlight)  # to highlight R output
+library(xtable)     # to export R output tables to LaTeX
+@
+
+
+<<setting, include=FALSE, purl=FALSE>>=
+### output options (there are a lot..):
+options(
+   width = 90, # max. width, in characters, of the R output. Default is 80.
+   scipen = 4  # to avoid printing inline R output numbers in scientific
+               # notation if they are lower than 10^4
+)
+
+### set global chunk options. They apply to all chuncks except to those in which
+### you set otherwise
+opts_chunk$set(
+   echo = FALSE,         # don't show R input code
+   message = TRUE,       # set to FALSE to avoid nuisance messages (be careful!)         
+   warning = TRUE,       # set to FALSE to avoid nuisance messages (be careful!)         
+   size = "footnotesize", # set the R output and output font size 
+   cache = TRUE,          # useful for computationally costly chunks (be careful!)
+   prompt = TRUE
+)
+@
+
+
+\begin{document}
+
+
+
+\title{Integrating \R\ and \LaTeX\ in a single source document with the \Rpackage{knitr} package: An example of reporting reproducible research\vspace{1mm} \normalsize{\color{blue}(version 1.1)}}
+\author[1,2]{Jose Barrera}
+\affil[1]{\small ISGlobal Barcelona Institute for Global Health - Campus Mar}
+\affil[2]{\small Departament de Matem\`atiques, Universitat Aut\`onoma de Barcelona}
+
+\maketitle
+
+\thispagestyle{empty}
+
+%%%%%%%%%%%%%%%
+%%%
+%%% Abstract page
+%%%
+%%%%%%%%%%%%%%%
+\clearpage
+\begin{abstract}
+Here you can put your abstract...
+\end{abstract}
+
+%%%%%%%%%%%%%%%
+%%%
+%%% Table of contents
+%%%
+%%%%%%%%%%%%%%%
+\clearpage
+\tableofcontents
+\clearpage
+
+\pagenumbering{arabic}
+
+
+
+%%%%%%%%%%%%%%%
+%%%
+%%% Section: Introduction
+%%%
+%%%%%%%%%%%%%%%
+\section{Introduction}
+\label{sec:intro}
+
+<<>>=
+library(here)
+load(here("data/cleandata/taulaDescriptiva.RData"))
+taula_3T
+@
+
+<<printTable_patientChar, results = 'asis',fig.pos="h",eval=F>>=
+taulaprint <- taula_3T
+taulaprint[2:4] <- lapply(taulaprint[2:4],
+                          function(x) gsub("%","\\\\%",x))
+
+taulaprint <- xtable(taulaprint, align="llcccc",
+                   caption = "Patient characteristics by cases and controls. Values are mean (Standard deviation) for continuous normal distributed variables, median (IQR range) for continuous non-normal distributed variables, and counts (percentatge) for categorical variables. Pvalue for the comparison between cases and controls (mean, median or proportion).",
+                   label = "tab:patientChar")
+
+addtorow <- list()
+addtorow$pos <- list(0,0)
+addtorow$command <- c("\\multicolumn{1}{c}{\\bf Characteristics} &
+                       \\multicolumn{1}{c}{\\bf Controls} &
+                       \\multicolumn{1}{c}{\\bf AD} &
+                       \\multicolumn{1}{c}{\\bf MCI} &
+                       \\multicolumn{1}{c}{\\bf Pvalue}\\\\\n",
+                      paste0(" & ",prev_3T[1],prev_3T[4]," & ",
+                             prev_3T[2],prev_3T[5]," & ",
+                             prev_3T[3],prev_3T[6]," & \\\\\n"))
+
+
+# format and print the table:
+print(taulaprint,
+      size = "footnotesize",
+      add.to.row = addtorow,
+      include.rownames = FALSE,
+      include.colnames = FALSE,
+      floating = TRUE,                 
+      sanitize.text.function = force,  
+      booktabs = TRUE)                 
+@
+  
+\end{document}
+

@@ -1,0 +1,26 @@
+{
+    "id": "837003C2",
+    "path": "~/Analisi/Rscripts/3_modelling/modelling_longitudinalAnalysis_v2.R",
+    "project_path": "Rscripts/3_modelling/modelling_longitudinalAnalysis_v2.R",
+    "type": "r_source",
+    "hash": "1314901686",
+    "contents": "",
+    "dirty": false,
+    "created": 1689500033059.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "1245,0",
+        "scrollLine": "1213"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1689472180,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1689472180,
+    "read_only": false,
+    "read_only_alternatives": []
+}

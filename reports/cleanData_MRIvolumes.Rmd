@@ -1,0 +1,538 @@
+---
+title: "Gestió base de dades de mesures MRI dels pacients projecte ADNI."
+output: 
+  rmdformats::readthedown:
+    code_folding: hide
+    
+---
+
+```{r,message=FALSE,warning=FALSE}
+library(here)
+library(kableExtra)
+source(here("Rscripts","paths.R"))
+load(here(cleandataDir,"demoData.RData"))
+```
+
+## 1. Lectura de base de dades amb informació de volums cerebrals.
+
+La base de dades **volumes** recull informació de volums cerebrals per 13 subregions de l'hipocamp, tant per l'hemisferi esquerre com dret, així com el volum intracraneal estimat (27 variables), per a un total de 1405 pacients ADNI. Cada pacient s'identifica amb un codi numèric de quatre xifres, que figura tant a la variable *Subject* com *Suject2*. Cada pacient té diverses mesures preses, a diferent temps, recollit també al string de la variable *Subject*. Finalment, la resolució en tesla de les mesures està recollida a la variable *tesla*.
+
+S'hi han realitzat les següents tasques:
+
+* Extracació de l'identificador del pacient inclòs a la variable *Subject* en una nova  variable *PTID*, amb un format coherent amb la resta de dades d'altres fonts.
+
+* Extracció de la data en què es realitzà la mesura MRI corresponent a cada registre de la base de dades, a la variable *measureDate*.
+
+* Unió amb la base de dades **patientInfo** de les variables *enrolDate* (data de la primera visita registrada a la base de dades demo) i *AGE* (edad basal a la data d'admissió al projecte).
+
+* Calcular el lapse de temps en mesos *timelapse* entre cada mesura MRI registrada *measureDate* i la data d'entrada al projecte *enrolDate*, entesa com la data de la visita basal registrada a la base de dades de característiques demogràfiques. Comprovar que les mesures MRI basals haurien de tenir un valor proper a 0, mentre que les de seguiment haurien d'estar espaiades a 3,6,12,18,etc mesos.
+
+* Detectar pacients pels que tots els registres de la base de dades presenten valors perduts, guardar el seu identificador PTID a l'objecte **PTwithnoData** i eliminar-ne els registres.
+
+* Ordenar les observacions per nombre PTID i data de mesura MRI, reordenar les variables en un ordre lògic, i eliminar les variables innecessàries *Subject* i *Subject2*.
+
+Com a resultat, es disposa d'un dataframe 6954 registres i 33 variables, corresponents a mesures per 1395 pacients diferents. Aquest n'és l'aspecte, mostrant les variables identificadores de la mesura i el pacient, i una de les 26 mesures de volum cerebral. Notar que encara hi ha 37 registres que presenten valors perduts a totes les mesures de volum. Es tractaran posteriorment.
+
+```{r}
+# =============================================================================
+# A) IMPORT MRI VOLUMNE DATA and DATA WRANGLING
+# =============================================================================
+
+# It's been noticed at first glimpse that missing values appear encoded both as
+# NA and "". What is more, it seems that several cases are corrupted,
+# with strange values in some fields and even less fields than other registers.
+
+volumes <- read.table(here(rawdataDir, "20211025_HSvolumes.txt"),
+                   sep=" ", header=T, fill=T, na.strings = c("",NA))
+
+
+# Save variable names for measurements -----------------------------
+aux <- grep("(right|left|Total)",names(volumes))
+volumeVars <- names(volumes)[aux]
+
+# Extraiem el PTID de Subject2----------------------------------------
+ptid <- volumes$Subject2
+regex_PTID <- "^(\\d{3})_(\\w)_(\\d{4})$" # expected format
+
+  #is there any PTID with a different format?
+  #any(!grepl(regex_PTID,ptid)) 
+    # we are good;all PTID are consistent format-wise.
+
+# Replace PTID current value by only its last 4-digit code -----------------
+volumes$PTID <- as.factor(gsub(regex_PTID,"\\3",volumes$Subject2))
+
+
+# Extract Measure Date ---------------------------------------
+regex_date <- "^(.*)_(\\d{4}-\\d{2}-\\d{2}).*$"
+volumes$measureDate <- gsub(regex_date,"\\2",volumes$Subject)
+volumes$measureDate <- as.Date(volumes$measureDate)
+
+# From patientInfo dataset, join enrolment date and baseline age at that
+# moment: enrolDate , AGE ----------------------------------------------
+volumes <- merge(volumes,patientInfo[,c("PTID","enrolDate","AGE")], by="PTID")
+
+# Calculate timelapse variable ------------------------------------
+  # For each pacient, add their enrolment Date and calculate the time difference
+  # between the measure date and the enrolment date.
+volumes$timelapse <- with(volumes, measureDate-enrolDate)
+  # Timelapse in months...
+volumes$timelapse <- as.numeric(volumes$timelapse)/30
+
+# Delete objects from Glob.Env with no further utility
+rm(list=c("ptid","regex_PTID","regex_date"))
+
+# =============================================================================
+# B) MISSING VALUES
+# =============================================================================
+
+# Remove all patients with any measure at all. aka: all registers are NA
+# values for all visits
+
+  # i) Select those variables that have any missing value
+varNA <- names(volumes)[sapply(volumes,function(x)any(is.na(x)))]
+
+  # ii) Split databse by PTID and check if the sum of missing values
+  #     is equal to the dataframe dimension, which would mean that
+  #     all values are NA
+volumes_byPT <- split(volumes,volumes$PTID)
+aux <- sapply(volumes_byPT, FUN=function(x){
+  sum(is.na(x[,varNA])) == Reduce('*',dim(x[,varNA]))}) 
+
+  # iii) Select PTID whose registers are all NA
+PTwithnoData <- names(aux)[aux]
+
+# 10 pacients amb 37 mesures en total
+#b <- volumes_byPT[aux]
+#summary(do.call(rbind,b))
+# Quedaran: 1395 pacients i 6954 registres
+
+volumes <- subset(volumes, !(PTID %in% PTwithnoData))
+volumes$PTID <- droplevels(volumes$PTID)
+#length(unique(volumes$PTID)) #ok!
+
+
+# Reorder variables in a more sensible order, and get rid of those that
+# now are redundant. ----------------------------------------------------
+volumes[c("Subject","Subject2")] <- NULL
+volumes <- volumes[,c("PTID","AGE","measureDate","enrolDate","timelapse",
+                      "tesla",volumeVars)]
+#volumes[1:20,1:5]
+
+# Arrange observations in a ascending order of PTID and measure date --------
+volumes <- volumes[order(volumes$PTID,volumes$measureDate),]
+rownames(volumes) <- NULL
+
+# Remove objects from the global environment that are of no use anymore
+rm(list=c("varNA","volumes_byPT","aux"))
+
+volumes[1:10,1:7]
+str(volumes)
+```
+
+
+## 2. Distribució de les mesures segons tipus de resolució tesla
+
+L'objectiu és doble: per una banda, veure com són les mesures dels pacients quant a la resolució en tesa, i si el pas de 1.5 a 3 tesla respon a l'evolució del projecte ADNI en el temps. I per altra, quina és la distribució del nombre de mesures MRI per pacient, segons la resolució emprada.
+
+```{r}
+# =============================================================================
+# C) MEASUREMENT DISTRIBUTION BY TESLA TYPE
+# =============================================================================
+
+# FOR EACH PACIENT, GET THEIR PTID, NUMBER OF MRI MEASURES AND 
+# WHETHER THESE ARE ONLY IN 1.5 TESLA, 3 TESLA OR A MIX.
+ptid_tesla <- lapply(split(volumes,volumes$PTID),function(x){
+                nmeasures <- nrow(x)
+                type <- paste(unique(x$tesla), collapse = "/")
+                res <- data.frame(PTID=unique(x$PTID),
+                                  tesla=type,
+                                  numMRI_measures=nmeasures)
+                return(res)
+              })
+ptid_tesla <- do.call(rbind,ptid_tesla)
+ptid_tesla$tesla <- as.factor(ptid_tesla$tesla)
+levels(ptid_tesla$tesla)[levels(ptid_tesla$tesla) == "3/1.5"] <- "1.5/3"
+
+ptid_tesla <- merge(ptid_tesla,
+                    patientInfo[,c("PTID","Path","numVisits")],
+                    by="PTID")
+
+#-----------------------------------------------------------------------------
+# PLOT: number of patients with a given ADNI project path,
+#       explained by type of measurement: 1.5T, 3T or 1.5/3 T
+#-----------------------------------------------------------------------------
+aux <- with(ptid_tesla, table(Path , tesla))
+end_point <- 0.5 + nrow(aux) + nrow(aux) - 1
+
+#png(file = here("figures","teslaMeasuresByAdniPhase.png"),
+#    850,450)
+
+barplot(t(aux),xaxt="n",space=1,ylim=c(0,500),
+        col=c("#0066CC","#33CCCC","#CC9933"))
+text(seq(1.5, end_point, by = 2), par("usr")[3]-0.25, 
+     srt = 35, adj = 1.05, xpd = TRUE, 
+     labels = paste(rownames(aux)), cex = 0.65,font=2)
+legend(20,500,legend=colnames(aux),
+       fill=c("#0066CC","#33CCCC","#CC9933"),
+       title="Tesla",cex=1.2,box.lwd = 0)
+mtext(side=2,text="Num. patients with a given ADNI path",
+      line=2.3,cex=1,font=2)
+axis(1,c(0,24),labels = F)
+#dev.off()
+
+#------------------------------------------------------------------------
+# PLOT: Distribution of number of MRI measurements for each patient,
+#       both in 1 tesla and 3 teslas.
+#-----------------------------------------------------------------------
+
+# Proportion of measures for each tesla scenario
+prop_teslaMeasures <- round(prop.table(table(ptid_tesla$tesla)),2)*100
+
+# Select only 1 type of tesla measurement, and tabulate number of pacients
+# with a certain number of MRI measurements
+aux <- subset(ptid_tesla,tesla %in% c("1.5","3"))
+aux$tesla <- droplevels(aux$tesla)
+aux<- split(aux,aux$tesla)
+numMeasures_byTesla <- lapply(aux, FUN= function(x){
+                          res <- table(x$numMRI_measures)
+                          attributes(res)$tesla <- unique(x$tesla)
+                          return(res)
+                        })
+
+# BARPLOT
+lapply(numMeasures_byTesla,function(x){
+  # Auxiliary values
+  numPT <- sum(x)
+  aux <- which(names(prop_teslaMeasures) == attributes(x)$tesla)
+  propPT <- prop_teslaMeasures[[aux]]
+  
+  # Make plot
+  #file <- here("figures",paste0("measureDist_byTesla",
+  #                             attributes(x)$tesla,".png"))
+  #png(file,width = 800,height = 480)
+  
+  barplot(prop.table(x), las= 1, xlab=" ", ylab="", col="grey",
+          cex.lab=1.7, cex.main=1.5, axes= F, ylim=c(0,.25),
+          names.arg="")
+  
+  axis(1,seq(0.7,by=1.2,length.out=length(x)),labels = names(x),cex.axis=1.5)
+  axis(2,seq(0,0.25,by=0.05),cex.axis=1.5,las=1,line=-1)
+  mtext("Num. MRI measures",side=1, line=2.5, cex=1.5, font=2)
+  mtext("Prop. of patients",side=2, line=2.7, cex=1.5, font=2)
+  mtext(paste("Measure distribution in ",
+              attributes(x)$tesla," teslas"),
+        side=3, line=1, cex=1.5, font=2)
+  text(x=9.5,y=0.24,labels = paste0("Num.patients: ",sum(x),
+                                    " (",propPT,"%)"),
+       cex=1.5)
+  
+  #dev.off()
+})
+
+
+# Delete objects from GE with no further utility
+rm(list=c("aux","numMeasures_byTesla","end_point","prop_teslaMeasures"))
+
+```
+
+Notar que hi ha alguns pacients amb només una mesura, i que per tant no tenen un seguiment longitudinal com a tal. Per altra banda, s'observa que a partir del projecte ADNIGO o ADNI2, les mesures són totes a 3 tesla, i que les mesures a 1.5 corresponent exclusivament a pacients que iniciaren la seva participació a l'inici del projecte amb ADNI1. A part, existeixen alguns pacients pilot pels que es disposa o bé de dues sèries de mesures paral·leles a dues resolucions, o bé existeix un salt en la resolució en el moment en que s'inicien fases noves del projecte.
+
+Per aquest motiu, es tractaran per separat els pacients amb mesures d'una única resolució (1.5 o 3 T) i els pacients amb mescla de resolucions.
+
+## 3. Gestió de les dades pacients amb mesures d'una única resolució tesla.
+
+A tal fi, es fa un split del dataset entre els que tenen mesures en 1.5 i 3T i els que només tenen mesures en una d'elles. Els pacients amb mescla de mesures representen el 14% del total (178 pacients).
+
+```{r}
+# PTID with repeated measures, both in 1.5 and ---------------------------
+# 3 teslas for similar dates----------------------------------------------
+aux <- lapply(split(volumes,volumes$tesla),function(x)unique(x$PTID))
+PTID_withBothTeslaMeasure <- Reduce(intersect,aux)
+#length(PTID_withBothTeslaMeasure)
+  # dels 1395 PTID amb mesures, 178 tenen mesures en dos teslas,
+  # mentre que 1217 pacients només tenen mesures d'un tipus.
+
+
+```
+Quant als pacients amb un sol tipus de resolució tesla, es realitzen les següents tasques:
+
+* **Fer el subset de les dades, en un nou dataset volumes_singleT.**
+
+```{r}
+#----------------------------------------------------------------------------
+# D.1) SINGLE TESLA MEASUREMENTS
+#       i) Subset
+#       ii) Deal with incomplete and NA registers
+#       iii) Classify measures as baseline and follow-up
+#       iv) Set a longitudinal time measurement, based on enrollment date
+#           for each patient.
+#----------------------------------------------------------------------------
+
+################
+# i) SUBSET 
+################
+volumes_singleT <- volumes[!(volumes$PTID %in% PTID_withBothTeslaMeasure),]
+  # 5550 registres de 1217 pacients diferents
+```
+
+* **Explorar i tractar els pacients amb valors perduts.**
+
+```{r}
+############################
+# ii) Corrupted registers 
+############################
+  # Patients with missing values. Save them apart at 'rareCases' dataframe
+aux <- unique(volumes_singleT[!complete.cases(volumes_singleT),"PTID"]) 
+rareCases <- volumes_singleT[volumes_singleT$PTID %in% aux,]
+  # 5 patients with corrupted registers or only 1 or 2 sparse measurements,
+  # with NA for the rest.
+
+  # Remove them from dataset: 1212 patients, 5522 registers
+volumes_singleT <- subset(volumes_singleT,subset=!(PTID %in% aux))
+volumes_singleT$PTID <- droplevels(volumes_singleT$PTID)
+
+rareCases[,1:7]
+  
+
+```
+
+Es tracta de 5 pacients, pels quals 4 només tenen una mesura útil. El pacient 557 disposa de tres mesures a 1,5 tesla, però no té mesura basal.
+Com a casos especials, es guarden a l'objecte **rareCases** per discutir-ne el seu ús a posteriori si escau.
+
+* **Classificació de les mesures en basal o de seguiment a 3,6,18... mesos, depenent del valor de *timelapse* calculat anteriorment.**
+
+Prèviament, per cada pacient es comprova la distribució del *timelapse* per la primera mesura MRI realitzada. Com pot observar-se a l'histograma i a la distribució dels quantils, el 92% de les primeres mesures MRI per cada pacient es realitzaren abans que la primera visita (enrolDate) registrada a la base de dades demogràfica, que com s'ha dit es considera la data d'entrada al projecte i per la qual es registra l'edat del participant entre d'altres. Només el 3.5% dels pacients presenten una priemra mesura 2 o més mesos abans que la primera visita.
+
+Així doncs, a l'hora d'assignar la primera mesura MRI com a basal, es consideraran aquelles preses com a molt 2 mesos abans de la data de priemra visita, i com a molt tard mes i mig després; les anteriors es descarten, i les posteriors ja es consideren mesura de seguiment als 3 mesos (no arriben al 2% de les primeres mesures). La resta de mesures (6% de primeres mesures) amb un *timelapse* superior a 0, corresponen a pacients en els que no disposen de mesura basal, sinó que la primera mesura es realitza al menys passats 3 mesos de la primera visita.
+
+Per altra banda, a l'hora de classificar les mesures de seguiement, es consideren els mateixos nivells que consten a la base de dades **demo**, on les visites de seguiment es realitzen als 3 mesos, 6 mesos, i cada 6 mesos fins als 132 mesos, quan el seguiement passa a ser anual. El límit entre un  grup i un altre es fixa a la meitat de l'interval.
+
+```{r}
+
+###############################
+# iii) CLASSIFY MEASURE AS BASELINE OR 3,6,12...FOLLOW-UP MEASURE DEPENDING
+#      ON THE TIME DIFFERENCE BETWEEN MEASURE DATE AND ENROL DATE FOR EACH
+#      PACIENT (first visit date for each pacient in demo dataset)
+##############################
+  
+  # a) Check what the delay might be between the first MRI measure and 
+  #     the day when the patient enrolled the project (date of the first visit)
+  firstMeasureLag <- sapply(split(volumes_singleT,volumes_singleT$PTID),
+                            FUN='[',1,"timelapse",drop=T)
+  hist(firstMeasureLag)
+  quantile(firstMeasureLag,seq(0,1,by=0.01))[93:101]
+  quantile(firstMeasureLag,seq(0,1,by=0.005))[1:10]
+    # The majority of patients had their first MRI measure taken before
+    # their baseline first visit took place.
+    # 3.5% of patients have a first measure 2 or more months before
+    # first visit.
+    # Among those patients that had their first MRI measurement taken
+    # AFTER first visit, 15% of them were measured within the next 1.5 month,
+    # for which is still reasonable to consider them as baseline measure.
+    # A bigger timelapse means that the first measure is no a baseline, but
+    # a follow-up one (3-6-12-18... months after enrolment).
+  
+  # b) With all that said, measures with a time-lapse lower than -2 months
+  #     will not be considered, and should be removed. (42 obs.)
+  volumes_singleT <- subset(volumes_singleT, !timelapse<(-2))
+  
+  # e) Assign each measurement a VISCODE code: bl, m03, m06, m12, m18...
+  #    according to timelapse value.
+  breaks <- c(-Inf,1.5,4.5,seq(10.5,130.5,by=6),138,150,162)
+  labels <- levels(demo$VISCODE2)
+  aux <- lapply(split(volumes_singleT,volumes_singleT$PTID),
+                function(x){x$VISCODE2 <- 
+                              cut(x$timelapse, 
+                                  breaks=breaks,
+                                  labels=labels,
+                                  include.lowest=T)
+                            return(x)
+                           })
+  aux <- do.call(rbind,aux)
+
+```
+
+
+* **Creació de la variable *time*, com a mesura de temps longitudinal per cada pacient.**
+
+Com a mesura longitudinal de temps, es considera l'edat del pacient al moment de mesura, prenent com a referència l'edat registrada a la primera visita o moment d'entrada al projecte. Per calcular-la, al lapse de temps *timelapse* entre mesura MRI i data de primera visita, se li suma l'edat basal a la primera visita.
+
+```{r}
+
+############################## 
+# iv) Longitudinal time measurement: current patient age, calculated
+#    as age at enrolment plus time-lapse between enrolment date and
+#    measurement date.
+################################
+  aux$time <- with(aux, AGE + (timelapse/12),3)
+
+  # RESULT DATAFRAME
+  volumes_singleT <- aux[,c("PTID","tesla","VISCODE2",
+                            "enrolDate","AGE","measureDate",
+                            "timelapse","time",
+                            volumeVars)]
+  
+
+  rownames(volumes_singleT) <- NULL
+  volumes_singleT[1:9,c(1,3:9)]
+  rm(list=c("firstMeasureLag","breaks","labels"))
+
+```
+
+### Correspondència de mesures MRI amb visites
+
+Per mirar si les mesures MRI i les visites de la base de dades **demo** coincideixen, fem un merge per PTID i VISCODE2.
+
+```{r}
+vol <- volumes_singleT[,c("PTID","VISCODE2","enrolDate",
+                          "measureDate","timelapse")]
+m <- merge(vol,demo[,c("PTID","VISCODE2","EXAMDATE")],
+           by=c("PTID","VISCODE2"),all.x=T)
+m$dif <- as.numeric(m$EXAMDATE-m$measureDate)/30
+m <- split(m,m$PTID)
+
+m$`0005`
+
+```
+
+Com es pot observar, en la majoria dels casos la diferència entre la measureDate i la EXAMDATE es poca. Però en cert casos, hi ha discrepàncies.
+
+```{r}
+problems <- sapply(m,function(x)any(abs(x$dif)>2.5,na.rm = T))
+problems <- m[problems]
+length(problems)
+```
+
+En 49 pacients en què hi ha discrepàncies majors que dos mesos i mig. Per exemple, el cas 0042, la mesura de 2010-03-18 està presa 53 mesos després de la primera visita, de manera que es classifica al grup més proper, m54. Tanmateix, a la base de dades **demo**, la classificació VISCODE per a aquesta data és de m48. Mirant les diferències reals *dif* entre *EXAMDATE* i data primera visita, es veu que els m48, m54, m60 i m66 discrepen amb el temps real.
+
+```{r}
+# Exemple
+v <- problems$`0042`
+d <- subset(demo,PTID=="0042",select=c("PTID","VISCODE2","EXAMDATE"))
+d$dif <- as.numeric(d$EXAMDATE - d$EXAMDATE[1])/30
+
+v
+d
+
+```
+
+
+
+## 4. Gestió de les dades pacients amb mescla de resolució tesla en les mesures.
+
+Els pacients amb resolucions mesclades s'agrupen en dues categories: una sola sèrie de mesures longitudinals, que s'inicien a 1.5 i a cert punt canvien a 3T; i d'altres que presenten dues seqüències paral·lelels de mesures, a 1.5 i 3T.
+
+Quant als pacients amb dues sèries de mesures, sembla haver-hi força casuística: 
+
+```{r}
+#----------------------------------------------------------------------------
+# D.2) BOTH TESLA-TYPE MEASUREMENTS
+#       i) Subset
+#       ii) Deal with incomplete and NA registers
+#       iii) Classify measures as baseline and follow-up
+#       iv) Set a longitudinal time measurement, based on enrollment date
+#           for each patient.
+#----------------------------------------------------------------------------
+  
+################
+# i) SUBSET 
+################
+get_viscode <- function(x){
+  breaks <- c(-2,1.5,4.5,seq(10.5,130.5,by=6),138,150,162)
+  labels <- levels(demo$VISCODE2)
+    
+  res <- within(x,{
+      
+    VISCODE2 <- cut(timelapse, breaks=breaks,labels=labels,include.lowest=T)
+  })
+  return(res)
+}
+  
+  
+  
+volumes_bothT <- volumes[volumes$PTID %in% PTID_withBothTeslaMeasure,] 
+volumes_bothT$PTID <- droplevels(volumes_bothT$PTID)
+#1404 observations, 178 patients
+
+aux <- with(volumes_bothT, order(PTID,tesla,measureDate))
+volumes_bothT <- volumes_bothT[aux,]
+
+volumes_bothT <- get_viscode(volumes_bothT)
+
+prova <- volumes_bothT[,c("PTID","AGE","tesla","measureDate","enrolDate",
+                      "timelapse","VISCODE2")]
+
+a <- split(prova,prova$PTID)
+
+
+dups <- sapply(a,function(x)any(table(x$VISCODE2)>1))
+
+#Mesures amb dues seqüències
+b <- a[dups]
+
+# Mesures amb una seqüència
+c <- a[!dups]
+```
+
+* **Dues series, amb baseline i nombre semblant de mesures**
+
+```{r}
+b$`0015`
+```
+
+* **Dues series, una sense mesura baseline**
+
+```{r}
+b$`0035`
+```
+
+* **Dues series amb baseline, la de 3 tesla amb menys mesures**
+```{r}
+#Dues series, 3 tesla amb menys mesures
+b$`0058`
+```
+
+Per escollir quina de les dues seqüències es conserva, per cada pacient es proposa el següent arbre de decisió:
+  
+  * Tenen totes dues mesura basal? Si no, retenim la sèrie amb mesura basal; si és així...
+  
+  * Tenen un nombre de mesures semblant? Si no, es reté la sèrie amb més mesures. Si el nombre és semblant...
+  
+  * Es reté la sèrie de major resolució, a 3 tesla.
+  
+A tal fi, s'elabora la següent taula per filtrar, on es recull el nombre d'observacions a cada resolució i si cada una de les sèries tenen o no mesura basal.
+
+```{r}
+
+f <- function(x){
+  counts <- table(x$tesla)
+  bl_1T <- any(x[x$tesla=="1.5","VISCODE2"] == "bl")
+  bl_3T <- any(x[x$tesla=="3","VISCODE2"] == "bl")
+  
+  res <- data.frame(numMes_1.5=counts[1],
+                    numMes_3 = counts[2],
+                    bl_1T = bl_1T,
+                    bl_3T = bl_3T)
+  return(res)
+}
+
+res <- t(sapply(b,f))
+res <- data.frame(PTID=rownames(res),res)
+rownames(res) <- NULL
+
+
+head(res)
+
+```
+
+## 5. Consultes
+
+* Creieu adequada la manera de decidir si la primera mesura d'un pacient és o no la basal, en funció del lapse de temps entre la mesura i la primera visita?
+
+* Us sembla correcte com s'ha construït la mesura **time** pel seguiment longitudinal dels pacients, com la suma de l'edat reportada a la primera visita més el lapse de temps entre la mesura MRI i la data de la priemra visita?
+
+* Malgrat que en alguns casos costa fer el merge de les dates de mesura i MRI i les visites segons el codi VISCODE, ja sigi perquè es donen en dies diferents o el VISCODE de la base de dades *demo* no correspon amb la diferècia real de temps, crec que no té gaire efecte a l'hora de treballar i és complicat fer-ho casar tot. El que realment importa és el lapse de temps entre la data de mesura i la data de primera visita. Esteu d'acord?
+
+* Pels pacients amb dues seqüències, he fet la taula que la Patricia va proposar, i hi he afegit el tema de si tenen o no mesura baseline. Us sembla correcte la manera de decidir quina seqüència conservar?
+
+* Finalment, què seria millor fer, dues bases de dades amb mesures a 1.5T i 3T? O mesclar-les i incloure tesla com a variable?

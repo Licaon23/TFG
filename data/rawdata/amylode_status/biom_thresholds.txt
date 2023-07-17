@@ -1,0 +1,16 @@
+
+Biomarkers thresholds:
+
+#### ABETA_ex: valors iguals o per sota 1100 és AB+
+### valors per sobre 1100 és AB-
+
+
+### PTAU: valors per sota de 24 és T-
+## valors iguals o per sobre de 24 és T+
+
+
+## generar grups A/T en creuar totes dues variables
+## A-T-, A-T+, A+T-, A+T+ 
+## excloure A-T+  de les anàlisis
+
+

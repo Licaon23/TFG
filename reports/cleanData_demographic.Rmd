@@ -1,0 +1,116 @@
+---
+title: "Gestió base de dades de característiques basals dels pacients projecte ADNI."
+output: 
+  rmdformats::readthedown:
+    code_folding: hide
+    
+---
+
+```{r,message=FALSE,warning=FALSE}
+library(here)
+library(DiagrammeR)
+library(kableExtra)
+source(here("Rscripts","paths.R"))
+load(here(cleandataDir,"demoData.RData"))
+```
+
+## 1. Lectura de base de dades amb informació baseline dels subjectes
+
+En un examen inicial del fitxer de text i després d'una primera inspecció del dataset importat, es detecta que els valors perduts es troben codificats tant en NA com en "". Per altra banda, s'observen certs registres sense informació.
+
+Es realitzen els següents procediments a fi de netejar la base de dades i assegurar-ne la validesa interna.
+
+* **Assignar format correcte a les variables**
+  * Variable RID en format numèric, per transformar com a valor perdut NA aquells registres corrputes i detectar-los més fàcilment.
+  * Transformar a format *Date* la variable *EXAMDATE*.
+  * Transformar a factor les variables categòriques.
+
+* **Control de qualitat i neteja de la base de dades**
+  * Es detecten 28 casos amb un identificador *RID* nul. Donat que totes les variables del registre són nules, s'eliminen.
+  * Paralel·lament, hi ha cert registres amb RID definit però sense l'identificador de pacient *PTID.* Es comprova que són registres buits també, i es procedeix a eliminar-los.
+  * En relació a l'identificador *PTID*, se'n canvia el foramt retenint els últims darrers quatre digits.
+  * Pel que fa a la variable *VISCODE2*, es transforma com a variable ordianal, ja que indica la seqüència temporal de les mesures preses.
+  * Respecte a les variables COLPROT i ORIGPROT, indiquen a quina cohort pertany una certa mesura, així com quina és la cohort d'origen del pacient. Donat que el projecte ADNI consta de diverses etapes seqüencials, es transformen en varibles ordinals, amb els nivells ADNI1, ADNIGO, ADNI2 i ADNI3.
+  * Finalment, s'ordenen els registres per ordre segons identificador de pacient *PTID* i la data de les medicions *EXAMDATE*
+
+Com a resultat, la següent base de dades, per la que es mostren les primeres 20 files.
+```{r}
+tab <- kable(demo[1:20,])
+kable_styling(tab)
+```
+
+```{r}
+str(demo)
+summary(demo)
+```
+Nivells intervals de seguiment: baseline, després de 3 mesos, 
+cada 6 mesos i cada 12 mesos al final
+```{r}
+# Nivells intervals de seguiment: baseline, després de 3 mesos, 
+# cada 6 mesos i cada 12 mesos al final
+head(demo$VISCODE2)
+```
+
+Ordre de les etapes ADNI
+```{r}
+# Ordre de les etapes ADNI
+head(demo$COLPROT)
+```
+
+
+
+
+## 2. Trajectòries dels participants al llarg del projecte ADNI
+
+Donat que es disposen de múltiples mesures per cada participant, tant dins del seguiment d'una mateixa fase d'ADNI, com al llarg de les diferents fases, és interessant veure quina és la trajectòria de cada pacient individualment, així com saber per cada fase del projecte el nombre de participants que s'hi apunten per primer cop, quin és el nombre que prové del seguiment d'una fase anterior, i quants participants deixen l'estudi en una certa fase.
+
+El següent diagrama esquematitza aquestes xifres
+
+```{r}
+diagrama
+```
+
+```{r}
+diagramValues
+```
+El codi per l'anàlisi realitzat es pot trobar a l'apartat 2 del fitxer **importAndClean_demographic.R**, al directori **Rscripts** del projecte.
+
+## 3. Base de dades per característiques dels pacients
+
+Combinat la informació de la trajectòria de cada pacient pel projecte ADNI amb les característiques basals de cada un d'aquests participants, es crea una nova base de dades amb un registre per pacient, on consti a més el seu itinerari per ADNI i de quantes mesures en el temps es disposen durant el seu seguiment.
+
+```{r}
+tab <- kable(patientInfo[1:20,])
+kable_styling(tab)
+```
+```{r,echo=T}
+#Summary
+summary(patientInfo)
+str(patientInfo)
+
+
+```
+Nivells trajectòries
+```{r}
+# Nivells trajectòries
+levels(patientInfo$Path)
+```
+
+
+
+## 4. Datasets nets i codi
+Al directori *cleanData* del projecte, s'hi pot trobar un arxiu *.RData* amb les dades processades com a objectes de R descrites al llarg de l'informe.
+
+Per altra banda, tot el codi emprat per les tasques es pot consultar al fitxer *importAndClean_demographic.R*.
+
+## 5. Tasques pendents
+Resten certes tasques pendents a efectuar sobre aquest conjunt de dades
+
+* Reclassificar els grups de la variable *DX.bl*, en concret agrupar els pacients amb declivi cognitiu proper i tardà (EMCI i LMCI) en una sola categoria MCI. A més, considerar què fer amb els casos classificats com SMC(*significant memory concern*). Finalment, cal recodificar la categoria CN, *control*, com a factor de referència.
+
+* Caracateritzar i tractar els valors faltants. Estudiar-ne la proporció per variables i valorar-ne imputació o estudi de casos complets. 
+
+* Afegir a la base de dades de característiques basals el grup A/T per cada pacient, i excloure'n els A-T+. Intentar fer jo la classificació a partir dels biomarcadors i els thresholds indicats, i comprovar que ho he fet bé comparant amb l'arxiu que la Patricia va penjar.
+
+* Fer una descriptiva més detallada un cop estiguin solventats tots aquests aspectes.
+

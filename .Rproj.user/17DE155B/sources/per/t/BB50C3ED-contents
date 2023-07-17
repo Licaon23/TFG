@@ -1,0 +1,320 @@
+###############################################################################
+### EXPLORATORY DATA ANALYSIS                                                 #
+###   ADNI patient MRI measurements                                           #
+###   Version 1                                                               #
+###   January 2023                                                            #
+###   Albert Rodrigo Parés                                                    #
+###---------------------------------------------------------------------------#
+###   Tasks performed:                                                        #
+###                                                                           #
+###############################################################################
+source("Rscripts/libraries.R")
+source(here(RscriptsDir,"2_exploratory","descSummary.R"))
+load(here(cleandataDir,"volumes_and_scores.RData")) # load data
+
+
+# Anàlisi descriptiu per les dades a major resolució: 3 Teslas
+dd <- volumesOverall_scores$`3`
+
+#============================================================================
+# A) DESCRIPTIVA CARACTERISTIQUES BASALS DELS PACIENTS
+#============================================================================
+basal <- lapply(split(dd,dd$PTID),FUN="[",1,c(1:6,14:36))
+basal <- do.call(rbind,basal)
+head(basal)
+
+#-----------------------------------------------------------------------------
+# i) Taula estadístics descriptius segons grup diagnòstic
+#-----------------------------------------------------------------------------
+vars <- colnames(basal)[c(-1,-3,-6)]
+aux <-lapply(split(basal,basal$DX.bl), descSummary,
+             vars = vars)
+taula_3T <- Reduce(function(x,y){merge(x,y,by="variable",sort=F)},aux)
+
+
+pvals<- sapply(vars,FUN = groupContrast, by="DX.bl",data=basal)
+taula_3T$pvalue <- pvals
+colnames(taula_3T) <- c("Characteristics",levels(basal$DX.bl),"Pvalue")
+
+#Prevalence groups
+x <- basal$DX.bl
+n <- sprintf("N = %.i",table(x))
+p <- paste0("(",sprintf("%.0f",prop.table(table(x))*100),"\\%)")
+prev_3T <- format(c(n,p),justify = "centre")
+
+#save(taula_3T, prev_3T, file= here(cleandataDir,"taulaDescriptiva.RData"))
+
+library(kableExtra)
+tab <- kbl(taula_3T,align = "lcccc",
+           col.names = c("",prev_3T[1:3],""),
+           caption = "Baseline patient Characteristics") 
+tab <- add_header_above(tab,c("Characteristics",levels(basal$DX.bl),"Pvalue"),
+                        line = F,bold=T)
+                        
+tab <- kable_classic(tab,full_width=F,font="Cambria")
+formattedTab <- footnote(tab,
+  general = c("Results are reported as mean(standrad deviation) or median (1st,3rd) quartile for normal and non-normal numeric variables, respectively;
+  and as number of cases and proportion n(p%) for categorical variables.",
+  "Differences between diagnostic groups where tested using ANOVA or Kruskal-Wallis test for numeric Normal or non-Normal variables, respectively;
+   and using a Chi-squared test for categorical variables. P-values are reported.",
+  "Diagnostic groups: Controls (CN), Alzheimer's Disease (AD), Mild Cognitive Impairment (MCI)"),
+   title_format = c("bold")) 
+
+row_spec(formattedTab,0,bold=T)
+
+
+
+
+#-----------------------------------------------------------------------------
+# ii) Boxplots volums hipocampals segons grup diagnòstic
+#-----------------------------------------------------------------------------
+
+volumes_basal <- basal[,c(1,3,7:20)]
+volumes_long <- reshape(volumes_basal, direction="long",
+                       idvar="PTID",
+                       varying = list(names(volumes_basal)[3:16]),
+                       v.names="value",
+                       timevar="subfield",
+                       times=names(volumes_basal)[3:16])
+rownames(volumes_long) <- NULL
+
+x <- subset(volumes_long,subfield=="EstimatedTotalIntraCranialVol")
+ggbetweenstats(data=x,x=DX.bl,y=value,)
+
+ggplot(data=volumes_long, aes(x=DX.bl,y=value)) + 
+  geom_boxplot() +
+  geom_jitter(width = 0.1,aes(color=DX.bl),show.legend = F, size=0.01,
+              alpha=0.2) +
+  scale_color_manual(values = c("#1B9E77","#D95F02","#7570B3")) +
+  facet_wrap(~subfield,scales = "free") + 
+  ggstatsplot::theme_ggstatsplot() +
+  theme(strip.background = element_blank(),
+        plot.margin = margin(1,1,.5,1,"cm"),
+        axis.title = element_blank()) +
+  
+  ggtitle("Hippocampal subfield volume distributions at baseline by diagnostic group") +
+  labs(subtitle = "<span style = 'color: #1B9E77;'>**Controls**</span>, <span style = 'color: #D95F02;'>**Alzheimer`s disease**</span> and <span style = 'color: #7570B3;'>**Mild cognitive impairment**</span>" ,
+       caption="**Source**: ADNI project | **Diagnostic groups** CN: controls, AD: Alzheimer`s disease, MRI: mild cognitive impairment | **Units** Volume measurements in mm3") +
+  theme(plot.caption = element_markdown(hjust = 0, lineheight = 1.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0),
+        plot.title = element_text(size = 16, hjust = -.05))
+
+#-----------------------------------------------------------------------------
+# iii) Boxplots PRS segons grup diagnòstic
+#-----------------------------------------------------------------------------
+prs <- basal[,c(1,3,21:29)]
+prs_long <- reshape(prs, direction="long",
+                    idvar="PTID",
+                    varying = list(names(prs)[3:11]),
+                    v.names="value",
+                    timevar="PRS",
+                    times=names(prs)[3:11])
+rownames(prs_long) <- NULL
+
+ggplot(data=prs_long, aes(x=DX.bl,y=value)) + 
+  geom_boxplot() +
+  geom_jitter(width = 0.1,aes(color=DX.bl),show.legend = F, size=0.01,
+              alpha=0.2) +
+  scale_color_manual(values = c("#1B9E77","#D95F02","#7570B3")) +
+  facet_wrap(~PRS,scales = "free") + 
+  ggstatsplot::theme_ggstatsplot() +
+  theme(strip.background = element_blank(),
+        plot.margin = margin(1,1,.5,1,"cm"),
+        axis.title = element_blank()) +
+  
+  ggtitle("Polygenic Risk scores distribution by diagnostic group") +
+  labs(subtitle = "<span style = 'color: #1B9E77;'>**Controls**</span>, <span style = 'color: #D95F02;'>**Alzheimer`s disease**</span> and <span style = 'color: #7570B3;'>**Mild cognitive impairment**</span>" ,
+       caption="**Source**: ADNI project | **Diagnostic groups** CN: controls, AD: Alzheimer`s disease, MRI: mild cognitive impairment | **Units** PRS values have been standarized") +
+  theme(plot.caption = element_markdown(hjust = 0, lineheight = 1.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0),
+        plot.title = element_text(size = 16, hjust = -.05))
+
+#-----------------------------------------------------------------------------
+# iv) PCA volums hipocamp a basal
+#-----------------------------------------------------------------------------
+t(sapply(basal[vols],function(x){c(MEAN=mean(x),VAR=var(x))}))
+# Cal estandaritzar, variàncies molt diferents
+pca <- prcomp(basal[vols],scale=T)
+names(pca)
+pca$rotation[,1:3]
+
+prop_var <- pca$sdev^2/sum(pca$sdev^2)
+ggplot(data=data.frame(prop_var,pc=1:13),
+       aes(x=pc,y=prop_var)) +
+  geom_col(width=0.3) +
+  scale_y_continuous(limits=c(0,1)) +
+  theme_bw() +
+  labs(x="Principal Components",
+       y="Prop. variancia explicad")
+
+pca_ptid <- data.frame(pca$x,basal$DX.bl)
+
+
+
+ggplot(pca_ptid,aes(x=PC1,y=PC2,color=basal.DX.bl)) + 
+  geom_point(size=1.9,alpha=0.7,show.legend = F)+
+  ggstatsplot::theme_ggstatsplot() +
+  scale_color_manual(values = c("#1B9E77","#D95F02","#7570B3"))+
+  theme(strip.background = element_blank(),
+        plot.margin = margin(1,1,.5,1,"cm"),
+        axis.title = element_blank()) +
+  ggtitle("First two principal components for all hippocampal measures") +
+  labs(subtitle = "<span style = 'color: #1B9E77;'>**Controls**</span>, <span style = 'color: #D95F02;'>**Alzheimer`s disease**</span> and <span style = 'color: #7570B3;'>**Mild cognitive impairment**</span>" ,
+       caption="**Source**: ADNI project | **Diagnostic groups** CN: controls, AD: Alzheimer`s disease, MRI: mild cognitive impairment |\n**Units** PC1 versus PC2") +
+  theme(plot.caption = element_markdown(hjust = 0, lineheight = 1.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0),
+        plot.title = element_text(size = 16, hjust = -.05))
+
+
+
+
+# =============================================================================
+# C) DESCRIPTIVA MESURES LONGITUDINALS
+# =============================================================================
+
+#----------------------------------------------------------------------
+# i) Nombre observacions per cada temps, segons grup
+#---------------------------------------------------------------------
+aux <- summaryBy(Hippocampal_tail ~ DX.bl+VISCODE2,
+                 FUN=length,data=dd)
+
+numMeasures <- reshape(aux,direction = "wide",
+                       v.names = "Hippocampal_tail.length",
+                       idvar = "VISCODE2",
+                       timevar = "DX.bl")
+names(numMeasures) <- c("VISCODE2","CN","AD","MCI")
+numMeasures[is.na(numMeasures)] <- 0
+numMeasures
+tab_measures <- kbl(numMeasures,full_width=F,row.names = F,font="Cambria",
+                    caption="Number of patients with measurement at each time")
+tab_measures <- kable_classic(tab_measures)
+row_spec(tab_measures,0,bold=T)
+
+
+#-----------------------------------------------------------------------------
+# ii) Gràfics de mitjanes i intervals de confiança en el temps
+#-----------------------------------------------------------------------------
+
+### FUNCIO ------------------------------------------
+meanPlot_long <- function(volumeVar,dd){
+  
+  # Summarise data
+  sum <- summaryBy(list(c(volumeVar),c("time_visit","DX.bl")),
+                   data=dd,
+                   FUN=function(x){
+                     n <- length(x)
+                     if(n<3){return(c(n,mean(x),NA,NA))}
+                     
+                     m <- mean(x)
+                     se <- sd(x)/sqrt(n)
+                     t <- qt(0.975,df=n-1)
+                     
+                     return(c(n , m , m-t*se , m+t*se ))
+                   })
+  sum <- sum[order(sum$DX.bl,sum$time_visit),]
+  colnames(sum) <- c("time","DX.bl","n","mean","lower","upper")
+  
+  #Plot: line plot. Mean volume value and 95% CI versus time after baseline
+  ggplot(data=sum,aes(x=time,y=mean,color=DX.bl)) + 
+    geom_line(aes(group=DX.bl),show.legend = F)+
+    geom_point(show.legend = F) +
+    geom_pointrange(aes(ymin=lower , ymax=upper),show.legend = F) +
+    ggstatsplot::theme_ggstatsplot() +
+    scale_color_manual(values = c("#1B9E77","#D95F02","#7570B3")) + 
+    theme(strip.background = element_blank(),
+          plot.margin = margin(1,1,.5,1,"cm"),
+          axis.title = element_blank()) +
+    ggtitle(paste0("Longitudinal evolution of volum in ",volumeVar,".\n  Mean value and 95% CI after basaeline visit")) +
+    labs(subtitle = "<span style = 'color: #1B9E77;'>**Controls**</span>, <span style = 'color: #D95F02;'>**Alzheimer`s disease**</span> and <span style = 'color: #7570B3;'>**Mild cognitive impairment**</span>" ,
+         caption="**Source**: ADNI project | **Diagnostic groups** CN: controls, AD: Alzheimer`s disease, MRI: mild cognitive impairment | **Units** Mean volume in mm3. Time after baseline visit in months") +
+    theme(plot.caption = element_markdown(hjust = 0, lineheight = 1.5),
+          plot.subtitle = element_markdown(size = 12, hjust = 0),
+          plot.title = element_text(size = 16, hjust = -.05))
+  
+}
+
+### Aplicar funció per totes les mesures volums
+vols <- names(basal)[8:20]
+lapply(vols,FUN=function(x){
+  p <- meanPlot_long(volumeVar = x, dd = dd)
+  
+  filename <- paste0("meanPlotLong_",x,".png")
+  ggsave(filename = here("figures/volumesMeanPlot/",filename), 
+         plot = p, device="png",width = 10,height = 5)
+})
+
+
+#-----------------------------------------------------------------------------
+# iii) Lineplots de trajectòries longintudinals per pacients
+#-----------------------------------------------------------------------------
+
+ggplot(data=dd,aes(time_visit,y=Hippocampal_tail,group=PTID)) + 
+  geom_line(aes(color=DX.bl),alpha=0.6,show.legend = F)+
+  geom_point(aes(color=DX.bl),alpha=0.6,size=1,show.legend = F) +
+  facet_wrap(~DX.bl)+
+  ggstatsplot::theme_ggstatsplot() +
+  scale_color_manual(values = c("#1B9E77","#D95F02","#7570B3"))+
+  theme(#strip.background = element_blank(),
+        plot.margin = margin(1,1,.5,1,"cm"),
+        axis.title = element_blank()) +
+  ggtitle("Individual patient evolution for Hippocampal tail volume") +
+  labs(subtitle = "<span style = 'color: #1B9E77;'>**Controls**</span>, <span style = 'color: #D95F02;'>**Alzheimer`s disease**</span> and <span style = 'color: #7570B3;'>**Mild cognitive impairment**</span>" ,
+       caption="**Source**: ADNI project | **Diagnostic groups** CN: controls, AD: Alzheimer`s disease, MRI: mild cognitive impairment |\n**Units** Mean volume in mm3. Time after baseline visit in months") +
+  theme(plot.caption = element_markdown(hjust = 0, lineheight = 1.5),
+        plot.subtitle = element_markdown(size = 12, hjust = 0),
+        plot.title = element_text(size = 16, hjust = -.05))
+  
+
+
+#-----------------------------------------------------------------------------
+# iv) Scatterplot correlació 2 mesures a diferent temps
+#-----------------------------------------------------------------------------
+
+volum <- dd[,c("PTID","DX.bl","VISCODE2","Hippocampal_tail")]
+a <- reshape(data=volum, direction="wide",idvar = c("PTID","DX.bl"),
+             v.names = "Hippocampal_tail",timevar = "VISCODE2")
+head(a)
+
+cor(a$Hippocampal_tail.bl,a$Hippocampal_tail.m90,use = "complete.obs")
+
+ggplot(data=a,aes(x=Hippocampal_tail.bl,y=Hippocampal_tail.m24)) +
+  geom_point() +
+  facet_wrap(~DX.bl)
+
+
+
+
+# =============================================================================
+# C) MISSING VALUES
+# =============================================================================
+
+#------------------------------------------------------------------------
+# 1) Calculate percentage of complete cases, proportion of missing values
+#    by variable and by patient
+#------------------------------------------------------------------------
+
+# i) PERCENTATGE OF COMPLETE CASES
+(perc_cc <- mean(complete.cases(dd))*100)
+
+# i) PROPORTION OF MISSINGS BY VOLUME VARIABLES
+NAsByVar <- sapply(dd,function(x) mean(is.na(x))*100)
+NAsByVar[NAsByVar!=0]
+# since all variables have the same percentage of missings,
+# it is likely that incomplete cases are complete empty cases.
+
+# Missings a AT group (per què) i Scores genetics (79 pacients sense)
+
+# Distribució de Missings entre grups diagnòstic------------
+pos <- which(is.na(basal$AD_Pt_5e.06))
+aux <- basal[pos,"DX.bl"]
+n <- table(aux)
+totals <- table(basal$DX.bl)
+prop_missing <- n/totals
+chisq.test(n,totals)
+
+  # Missing at random? Si fem casos complets, no introduim biax?
+
+
+
+
+
